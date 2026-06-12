@@ -12,7 +12,7 @@ import model.MedicalRecord;
 import model.Medicine;
 import model.PrescriptionItem;
 
-public class DoctorDAO extends DBContext {
+public class DoctorDAO {
 
     /* get doctor by id*/
     public Doctor getDoctorByUserId(int userId) {
@@ -24,22 +24,23 @@ public class DoctorDAO extends DBContext {
             WHERE d.user_id = ?
         """;
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setInt(1, userId);
-            ResultSet rs = st.executeQuery();
-
-            if (rs.next()) {
-                Doctor d = new Doctor();
-                d.setDoctorId(rs.getInt("doctor_id"));
-                d.setUserId(rs.getInt("user_id"));
-                d.setSpecialization(rs.getString("specialization"));
-                d.setFullName(rs.getString("full_name"));
-                d.setPhone(rs.getString("phone"));
-                d.setEmail(rs.getString("email"));
-                return d;
+            try (ResultSet rs = st.executeQuery()) {
+                if (rs.next()) {
+                    Doctor d = new Doctor();
+                    d.setDoctorId(rs.getInt("doctor_id"));
+                    d.setUserId(rs.getInt("user_id"));
+                    d.setSpecialization(rs.getString("specialization"));
+                    d.setFullName(rs.getString("full_name"));
+                    d.setPhone(rs.getString("phone"));
+                    d.setEmail(rs.getString("email"));
+                    return d;
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getDoctorByUserId: " + e.getMessage());
         }
         return null;
     }
@@ -53,27 +54,29 @@ public class DoctorDAO extends DBContext {
             WHERE u.role = 'doctor' AND d.doctor_id IS NULL
         """;
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.executeUpdate();
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi syncDoctorRowsForAllDoctorUsers: " + e.getMessage());
         }
     }
 
     public void syncDoctorProfilesForAllDoctorUsers() {
         String sql = """
             INSERT INTO doctors (user_id, specialization)
-            SELECT u.user_id, 'ChÆ°a cáº­p nháº­t'
+            SELECT u.user_id, 'Chưa cập nhật'
             FROM users u
             LEFT JOIN doctors d ON d.user_id = u.user_id
             WHERE u.role = 'doctor' AND d.doctor_id IS NULL
         """;
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.executeUpdate();
         } catch (SQLException e) {
             // Keep schedule page working even if sync fails on existing schemas.
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi syncDoctorProfilesForAllDoctorUsers (non-fatal): " + e.getMessage());
         }
     }
 
@@ -90,13 +93,14 @@ public class DoctorDAO extends DBContext {
               )
             LIMIT 1
         """;
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setInt(1, userId);
             try (ResultSet rs = st.executeQuery()) {
                 return rs.next();
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi hasFutureUnfinishedAppointmentsByUserId: " + e.getMessage());
         }
         return false;
     }
@@ -112,52 +116,55 @@ public class DoctorDAO extends DBContext {
                 professional_qualification = ?, price_booking = ?
             WHERE user_id = ?
         """;
-        try (PreparedStatement updateDoctor = connection.prepareStatement(updateDoctorSql)) {
-            updateDoctor.setString(1, specialization);
-            updateDoctor.setInt(2, experienceYears);
-            setNullableString(updateDoctor, 3, academicTitle);
-            setNullableString(updateDoctor, 4, professionalQualification);
-            updateDoctor.setInt(5, priceBooking);
-            updateDoctor.setInt(6, userId);
-            if (updateDoctor.executeUpdate() == 0) {
-                try (PreparedStatement insertDoctor = connection.prepareStatement(
-                        """
-                        INSERT INTO doctors (user_id, specialization, experience_years, academic_title,
-                                             professional_qualification, price_booking)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """)) {
-                    insertDoctor.setInt(1, userId);
-                    insertDoctor.setString(2, specialization);
-                    insertDoctor.setInt(3, experienceYears);
-                    setNullableString(insertDoctor, 4, academicTitle);
-                    setNullableString(insertDoctor, 5, professionalQualification);
-                    insertDoctor.setInt(6, priceBooking);
-                    insertDoctor.executeUpdate();
+
+        try (Connection conn = DBContext.getConnection()) {
+            try (PreparedStatement updateDoctor = conn.prepareStatement(updateDoctorSql)) {
+                updateDoctor.setString(1, specialization);
+                updateDoctor.setInt(2, experienceYears);
+                setNullableString(updateDoctor, 3, academicTitle);
+                setNullableString(updateDoctor, 4, professionalQualification);
+                updateDoctor.setInt(5, priceBooking);
+                updateDoctor.setInt(6, userId);
+                if (updateDoctor.executeUpdate() == 0) {
+                    try (PreparedStatement insertDoctor = conn.prepareStatement(
+                            """
+                            INSERT INTO doctors (user_id, specialization, experience_years, academic_title,
+                                                 professional_qualification, price_booking)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """)) {
+                        insertDoctor.setInt(1, userId);
+                        insertDoctor.setString(2, specialization);
+                        insertDoctor.setInt(3, experienceYears);
+                        setNullableString(insertDoctor, 4, academicTitle);
+                        setNullableString(insertDoctor, 5, professionalQualification);
+                        insertDoctor.setInt(6, priceBooking);
+                        insertDoctor.executeUpdate();
+                    }
                 }
             }
-        }
 
-        String updateStaffSql = """
-            UPDATE staff_profiles
-            SET academic_degree = ?, dob = ?, gender = ?
-            WHERE user_id = ?
-        """;
-        try (PreparedStatement updateStaff = connection.prepareStatement(updateStaffSql)) {
-            updateStaff.setString(1, academicDegree);
-            updateStaff.setDate(2, dob);
-            updateStaff.setString(3, gender);
-            updateStaff.setInt(4, userId);
-            if (updateStaff.executeUpdate() == 0) {
-                try (PreparedStatement insertStaff = connection.prepareStatement(
-                        """
-                        INSERT INTO staff_profiles (user_id, academic_degree, dob, gender)
-                        VALUES (?, ?, ?, ?)
-                        """)) {
-                    insertStaff.setInt(1, userId);
-                    insertStaff.setString(2, academicDegree);
-                    insertStaff.setDate(3, dob);
-                    insertStaff.setString(4, gender);
-                    insertStaff.executeUpdate();
+            String updateStaffSql = """
+                UPDATE staff_profiles
+                SET academic_degree = ?, dob = ?, gender = ?
+                WHERE user_id = ?
+            """;
+            try (PreparedStatement updateStaff = conn.prepareStatement(updateStaffSql)) {
+                updateStaff.setString(1, academicDegree);
+                updateStaff.setDate(2, dob);
+                updateStaff.setString(3, gender);
+                updateStaff.setInt(4, userId);
+                if (updateStaff.executeUpdate() == 0) {
+                    try (PreparedStatement insertStaff = conn.prepareStatement(
+                            """
+                            INSERT INTO staff_profiles (user_id, academic_degree, dob, gender)
+                            VALUES (?, ?, ?, ?)
+                            """)) {
+                        insertStaff.setInt(1, userId);
+                        insertStaff.setString(2, academicDegree);
+                        insertStaff.setDate(3, dob);
+                        insertStaff.setString(4, gender);
+                        insertStaff.executeUpdate();
+                    }
                 }
             }
         }
@@ -202,7 +209,8 @@ public class DoctorDAO extends DBContext {
         }
         sql.append(" ORDER BY u.full_name");
 
-        try (PreparedStatement st = connection.prepareStatement(sql.toString())) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql.toString())) {
             int idx = 1;
             for (Object param : params) {
                 st.setObject(idx++, param);
@@ -229,7 +237,7 @@ public class DoctorDAO extends DBContext {
                 }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getDoctorsForAdmin: " + e.getMessage());
         }
         return list;
     }
@@ -265,7 +273,8 @@ public class DoctorDAO extends DBContext {
         }
         sql.append(" ORDER BY u.full_name");
 
-        try (PreparedStatement st = connection.prepareStatement(sql.toString())) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql.toString())) {
             int idx = 1;
             for (Object param : params) {
                 st.setObject(idx++, param);
@@ -276,7 +285,7 @@ public class DoctorDAO extends DBContext {
                 }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getStaffsForAdmin: " + e.getMessage());
         }
         return list;
     }
@@ -289,12 +298,14 @@ public class DoctorDAO extends DBContext {
             WHERE specialization IS NOT NULL AND specialization <> ''
             ORDER BY specialization
         """;
-        try (PreparedStatement st = connection.prepareStatement(sql); ResultSet rs = st.executeQuery()) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql);
+             ResultSet rs = st.executeQuery()) {
             while (rs.next()) {
                 list.add(rs.getString("specialization"));
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getDistinctDoctorSpecializations: " + e.getMessage());
         }
         return list;
     }
@@ -307,12 +318,14 @@ public class DoctorDAO extends DBContext {
             WHERE academic_degree IS NOT NULL AND academic_degree <> ''
             ORDER BY academic_degree
         """;
-        try (PreparedStatement st = connection.prepareStatement(sql); ResultSet rs = st.executeQuery()) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql);
+             ResultSet rs = st.executeQuery()) {
             while (rs.next()) {
                 list.add(rs.getString("academic_degree"));
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getDistinctDoctorQualifications: " + e.getMessage());
         }
         return list;
     }
@@ -328,7 +341,8 @@ public class DoctorDAO extends DBContext {
             WHERE d.doctor_id = ? AND u.role = 'doctor'
             LIMIT 1
         """;
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setInt(1, doctorId);
             try (ResultSet rs = st.executeQuery()) {
                 if (rs.next()) {
@@ -352,7 +366,7 @@ public class DoctorDAO extends DBContext {
                 }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getDoctorByIdForAdmin: " + e.getMessage());
         }
         return null;
     }
@@ -370,7 +384,8 @@ public class DoctorDAO extends DBContext {
               AND u.role IN ('doctor', 'receptionist', 'technician', 'patient_manager')
             LIMIT 1
         """;
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setInt(1, userId);
             try (ResultSet rs = st.executeQuery()) {
                 if (rs.next()) {
@@ -378,7 +393,7 @@ public class DoctorDAO extends DBContext {
                 }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getStaffByUserIdForAdmin: " + e.getMessage());
         }
         return null;
     }
@@ -389,22 +404,24 @@ public class DoctorDAO extends DBContext {
             SET academic_degree = ?, dob = ?, gender = ?
             WHERE user_id = ?
         """;
-        try (PreparedStatement updateStaff = connection.prepareStatement(updateStaffSql)) {
-            updateStaff.setString(1, academicDegree);
-            updateStaff.setDate(2, dob);
-            updateStaff.setString(3, gender);
-            updateStaff.setInt(4, userId);
-            if (updateStaff.executeUpdate() == 0) {
-                try (PreparedStatement insertStaff = connection.prepareStatement(
-                        """
-                        INSERT INTO staff_profiles (user_id, academic_degree, dob, gender)
-                        VALUES (?, ?, ?, ?)
-                        """)) {
-                    insertStaff.setInt(1, userId);
-                    insertStaff.setString(2, academicDegree);
-                    insertStaff.setDate(3, dob);
-                    insertStaff.setString(4, gender);
-                    insertStaff.executeUpdate();
+        try (Connection conn = DBContext.getConnection()) {
+            try (PreparedStatement updateStaff = conn.prepareStatement(updateStaffSql)) {
+                updateStaff.setString(1, academicDegree);
+                updateStaff.setDate(2, dob);
+                updateStaff.setString(3, gender);
+                updateStaff.setInt(4, userId);
+                if (updateStaff.executeUpdate() == 0) {
+                    try (PreparedStatement insertStaff = conn.prepareStatement(
+                            """
+                            INSERT INTO staff_profiles (user_id, academic_degree, dob, gender)
+                            VALUES (?, ?, ?, ?)
+                            """)) {
+                        insertStaff.setInt(1, userId);
+                        insertStaff.setString(2, academicDegree);
+                        insertStaff.setDate(3, dob);
+                        insertStaff.setString(4, gender);
+                        insertStaff.executeUpdate();
+                    }
                 }
             }
         }
@@ -417,11 +434,12 @@ public class DoctorDAO extends DBContext {
             SET price_booking = ?
             WHERE user_id = ?
         """;
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setInt(1, priceBooking);
             st.setInt(2, userId);
             if (st.executeUpdate() == 0) {
-                try (PreparedStatement insert = connection.prepareStatement(
+                try (PreparedStatement insert = conn.prepareStatement(
                         "INSERT INTO doctors (user_id, price_booking) VALUES (?, ?)")) {
                     insert.setInt(1, userId);
                     insert.setInt(2, priceBooking);
@@ -433,7 +451,8 @@ public class DoctorDAO extends DBContext {
 
     public void updateDoctorPriceByUserId(int userId, int priceBooking) throws SQLException {
         String sql = "UPDATE doctors SET price_booking = ? WHERE user_id = ?";
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setInt(1, priceBooking);
             st.setInt(2, userId);
             st.executeUpdate();
@@ -455,59 +474,61 @@ public class DoctorDAO extends DBContext {
             VALUES (?, ?)
         """;
 
-        boolean originalAutoCommit = connection.getAutoCommit();
-        try {
-            connection.setAutoCommit(false);
-            int userId;
+        try (Connection conn = DBContext.getConnection()) {
+            boolean originalAutoCommit = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
+                int userId;
 
-            try (PreparedStatement userSt = connection.prepareStatement(sqlUser, Statement.RETURN_GENERATED_KEYS)) {
-                userSt.setString(1, fullName);
-                userSt.setString(2, phone);
-                userSt.setString(3, email);
-                userSt.setString(4, password);
-                int affected = userSt.executeUpdate();
-                if (affected == 0) {
-                    connection.rollback();
-                    return 0;
-                }
-                try (ResultSet keys = userSt.getGeneratedKeys()) {
-                    if (!keys.next()) {
-                        connection.rollback();
+                try (PreparedStatement userSt = conn.prepareStatement(sqlUser, Statement.RETURN_GENERATED_KEYS)) {
+                    userSt.setString(1, fullName);
+                    userSt.setString(2, phone);
+                    userSt.setString(3, email);
+                    userSt.setString(4, password);
+                    int affected = userSt.executeUpdate();
+                    if (affected == 0) {
+                        conn.rollback();
                         return 0;
                     }
-                    userId = keys.getInt(1);
+                    try (ResultSet keys = userSt.getGeneratedKeys()) {
+                        if (!keys.next()) {
+                            conn.rollback();
+                            return 0;
+                        }
+                        userId = keys.getInt(1);
+                    }
                 }
-            }
 
-            try (PreparedStatement doctorSt = connection.prepareStatement(sqlDoctor)) {
-                doctorSt.setInt(1, userId);
-                doctorSt.setString(2, specialization);
-                doctorSt.setInt(3, experienceYears);
-                doctorSt.setInt(4, priceBooking);
-                int affected = doctorSt.executeUpdate();
-                if (affected == 0) {
-                    connection.rollback();
-                    return 0;
+                try (PreparedStatement doctorSt = conn.prepareStatement(sqlDoctor)) {
+                    doctorSt.setInt(1, userId);
+                    doctorSt.setString(2, specialization);
+                    doctorSt.setInt(3, experienceYears);
+                    doctorSt.setInt(4, priceBooking);
+                    int affected = doctorSt.executeUpdate();
+                    if (affected == 0) {
+                        conn.rollback();
+                        return 0;
+                    }
                 }
-            }
 
-            try (PreparedStatement staffSt = connection.prepareStatement(sqlStaff)) {
-                staffSt.setInt(1, userId);
-                staffSt.setString(2, qualification);
-                int affected = staffSt.executeUpdate();
-                if (affected == 0) {
-                    connection.rollback();
-                    return 0;
+                try (PreparedStatement staffSt = conn.prepareStatement(sqlStaff)) {
+                    staffSt.setInt(1, userId);
+                    staffSt.setString(2, qualification);
+                    int affected = staffSt.executeUpdate();
+                    if (affected == 0) {
+                        conn.rollback();
+                        return 0;
+                    }
                 }
-            }
 
-            connection.commit();
-            return userId;
-        } catch (SQLException ex) {
-            connection.rollback();
-            throw ex;
-        } finally {
-            connection.setAutoCommit(originalAutoCommit);
+                conn.commit();
+                return userId;
+            } catch (SQLException ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(originalAutoCommit);
+            }
         }
     }
 
@@ -530,67 +551,69 @@ public class DoctorDAO extends DBContext {
             VALUES (?, ?)
         """;
 
-        boolean originalAutoCommit = connection.getAutoCommit();
-        try {
-            connection.setAutoCommit(false);
-            Integer userId = null;
-            try (PreparedStatement st = connection.prepareStatement(sqlGet)) {
-                st.setInt(1, doctorId);
-                try (ResultSet rs = st.executeQuery()) {
-                    if (rs.next()) {
-                        userId = rs.getInt("user_id");
-                    }
-                }
-            }
-            if (userId == null) {
-                connection.rollback();
-                return false;
-            }
-
-            try (PreparedStatement userSt = connection.prepareStatement(sqlUser)) {
-                userSt.setString(1, fullName);
-                userSt.setString(2, phone);
-                userSt.setString(3, email);
-                userSt.setInt(4, userId);
-                if (userSt.executeUpdate() == 0) {
-                    connection.rollback();
-                    return false;
-                }
-            }
-
-            try (PreparedStatement doctorSt = connection.prepareStatement(sqlDoctor)) {
-                doctorSt.setString(1, specialization);
-                doctorSt.setInt(2, experienceYears);
-                doctorSt.setInt(3, priceBooking);
-                doctorSt.setInt(4, doctorId);
-                if (doctorSt.executeUpdate() == 0) {
-                    connection.rollback();
-                    return false;
-                }
-            }
-
-            try (PreparedStatement staffSt = connection.prepareStatement(sqlStaff)) {
-                staffSt.setString(1, qualification);
-                staffSt.setInt(2, userId);
-                if (staffSt.executeUpdate() == 0) {
-                    try (PreparedStatement insertStaffSt = connection.prepareStatement(sqlInsertStaff)) {
-                        insertStaffSt.setInt(1, userId);
-                        insertStaffSt.setString(2, qualification);
-                        if (insertStaffSt.executeUpdate() == 0) {
-                            connection.rollback();
-                            return false;
+        try (Connection conn = DBContext.getConnection()) {
+            boolean originalAutoCommit = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
+                Integer userId = null;
+                try (PreparedStatement st = conn.prepareStatement(sqlGet)) {
+                    st.setInt(1, doctorId);
+                    try (ResultSet rs = st.executeQuery()) {
+                        if (rs.next()) {
+                            userId = rs.getInt("user_id");
                         }
                     }
                 }
-            }
+                if (userId == null) {
+                    conn.rollback();
+                    return false;
+                }
 
-            connection.commit();
-            return true;
-        } catch (SQLException ex) {
-            connection.rollback();
-            throw ex;
-        } finally {
-            connection.setAutoCommit(originalAutoCommit);
+                try (PreparedStatement userSt = conn.prepareStatement(sqlUser)) {
+                    userSt.setString(1, fullName);
+                    userSt.setString(2, phone);
+                    userSt.setString(3, email);
+                    userSt.setInt(4, userId);
+                    if (userSt.executeUpdate() == 0) {
+                        conn.rollback();
+                        return false;
+                    }
+                }
+
+                try (PreparedStatement doctorSt = conn.prepareStatement(sqlDoctor)) {
+                    doctorSt.setString(1, specialization);
+                    doctorSt.setInt(2, experienceYears);
+                    doctorSt.setInt(3, priceBooking);
+                    doctorSt.setInt(4, doctorId);
+                    if (doctorSt.executeUpdate() == 0) {
+                        conn.rollback();
+                        return false;
+                    }
+                }
+
+                try (PreparedStatement staffSt = conn.prepareStatement(sqlStaff)) {
+                    staffSt.setString(1, qualification);
+                    staffSt.setInt(2, userId);
+                    if (staffSt.executeUpdate() == 0) {
+                        try (PreparedStatement insertStaffSt = conn.prepareStatement(sqlInsertStaff)) {
+                            insertStaffSt.setInt(1, userId);
+                            insertStaffSt.setString(2, qualification);
+                            if (insertStaffSt.executeUpdate() == 0) {
+                                conn.rollback();
+                                return false;
+                            }
+                        }
+                    }
+                }
+
+                conn.commit();
+                return true;
+            } catch (SQLException ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(originalAutoCommit);
+            }
         }
     }
 
@@ -632,12 +655,13 @@ public class DoctorDAO extends DBContext {
             WHERE appointment_id = ?
         """;
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, status);
             st.setLong(2, appointmentId);
             st.executeUpdate();
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi updateQueueStatus: " + e.getMessage());
         }
     }
 
@@ -648,11 +672,12 @@ public class DoctorDAO extends DBContext {
             WHERE appointment_id = ?
         """;
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setLong(1, appointmentId);
             st.executeUpdate();
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi startExamination: " + e.getMessage());
         }
     }
 
@@ -677,24 +702,16 @@ public class DoctorDAO extends DBContext {
             LIMIT 1
         """;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, doctorId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    DoctorQueueItem item = new DoctorQueueItem();
-                    item.setQueuePosition(rs.getInt("queue_position"));
-                    item.setAppointmentId(rs.getLong("appointment_id"));
-                    item.setPatientId(rs.getLong("patient_id"));
-                    item.setPatientName(rs.getString("patient_name"));
-                    item.setGender(rs.getString("gender"));
-                    item.setDob(rs.getDate("dob"));
-                    item.setSymptom(rs.getString("symptom"));
-                    item.setStatus(rs.getString("status"));
-                    return item;
+                    return mapQueueItem(rs);
                 }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getCurrentExaminingQueueItem: " + e.getMessage());
         }
 
         return null;
@@ -721,29 +738,21 @@ public class DoctorDAO extends DBContext {
             LIMIT 1
         """;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, doctorId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    DoctorQueueItem item = new DoctorQueueItem();
-                    item.setQueuePosition(rs.getInt("queue_position"));
-                    item.setAppointmentId(rs.getLong("appointment_id"));
-                    item.setPatientId(rs.getLong("patient_id"));
-                    item.setPatientName(rs.getString("patient_name"));
-                    item.setGender(rs.getString("gender"));
-                    item.setDob(rs.getDate("dob"));
-                    item.setSymptom(rs.getString("symptom"));
-                    item.setStatus(rs.getString("status"));
-                    return item;
+                    return mapQueueItem(rs);
                 }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getNextWaitingQueueItem: " + e.getMessage());
         }
 
         return null;
     }
-    
+
     public void finishExamination(long appointmentId) {
         String sql = """
             UPDATE exam_queue
@@ -751,11 +760,12 @@ public class DoctorDAO extends DBContext {
             WHERE appointment_id = ?
         """;
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setLong(1, appointmentId);
             st.executeUpdate();
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi finishExamination: " + e.getMessage());
         }
     }
 
@@ -763,7 +773,7 @@ public class DoctorDAO extends DBContext {
         List<DoctorQueueItem> list = new ArrayList<>();
 
         String sql = """
-        SELECT 
+        SELECT
             q.queue_position,
             p.full_name AS patient_name,
             p.gender,
@@ -785,22 +795,23 @@ public class DoctorDAO extends DBContext {
         q.queue_position
     """;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, doctorId);
-            ResultSet rs = ps.executeQuery();
-
-            while (rs.next()) {
-                DoctorQueueItem item = new DoctorQueueItem();
-                item.setQueuePosition(rs.getInt("queue_position"));
-                item.setPatientName(rs.getString("patient_name"));
-                item.setGender(rs.getString("gender"));
-                item.setDob(rs.getDate("dob"));
-                item.setSymptom(rs.getString("symptom"));
-                item.setStatus(rs.getString("status"));
-                list.add(item);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    DoctorQueueItem item = new DoctorQueueItem();
+                    item.setQueuePosition(rs.getInt("queue_position"));
+                    item.setPatientName(rs.getString("patient_name"));
+                    item.setGender(rs.getString("gender"));
+                    item.setDob(rs.getDate("dob"));
+                    item.setSymptom(rs.getString("symptom"));
+                    item.setStatus(rs.getString("status"));
+                    list.add(item);
+                }
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (SQLException e) {
+            System.err.println("Lỗi DB khi getTodayQueueByDoctor: " + e.getMessage());
         }
         return list;
     }
@@ -808,7 +819,7 @@ public class DoctorDAO extends DBContext {
     public DoctorDashboardStats getDashboardStats(int doctorId) {
         DoctorDashboardStats stats = new DoctorDashboardStats();
         String sql = """
-        SELECT 
+        SELECT
             COUNT(*) AS total,
             SUM(CASE WHEN q.status IN ('waiting', 'waiting_return') THEN 1 ELSE 0 END) AS waiting,
             SUM(CASE WHEN q.status = 'examining' THEN 1 ELSE 0 END) AS examining,
@@ -819,25 +830,27 @@ public class DoctorDAO extends DBContext {
                 AND a.appointment_date = CURRENT_DATE
         """;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, doctorId);
-            ResultSet rs = ps.executeQuery();
-            if (rs.next()) {
-                int total = rs.getInt("total");
-                int done = rs.getInt("done");
-                stats.setTotal(total);
-                stats.setWaiting(rs.getInt("waiting"));
-                stats.setExamining(rs.getInt("examining"));
-                stats.setDone(done);
-                stats.setCompletionRate(total == 0 ? 0 : (done * 100.0) / total);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    int total = rs.getInt("total");
+                    int done = rs.getInt("done");
+                    stats.setTotal(total);
+                    stats.setWaiting(rs.getInt("waiting"));
+                    stats.setExamining(rs.getInt("examining"));
+                    stats.setDone(done);
+                    stats.setCompletionRate(total == 0 ? 0 : (done * 100.0) / total);
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getDashboardStats: " + e.getMessage());
         }
         return stats;
     }
 
-    // lá»c theo keyword , tráº¡ng thÃ¡i
+    // lọc theo keyword , trạng thái
     public List<DoctorQueueItem> getQueueByDoctorWithFilter(
             int doctorId,
             String status,
@@ -846,8 +859,7 @@ public class DoctorDAO extends DBContext {
         return getQueueByDoctorWithFilterPaging(doctorId, status, keyword, 1, Integer.MAX_VALUE);
     }
 
-    // tÃ­nh tá»•ng sá»‘ báº£n ghi theo bá»™ lá»c Ä‘á»ƒ controller tÃ­nh totalPages cho phÃ¢n trang.
-    // dÃ¹ng query COUNT(*) cÃ¹ng Ä‘iá»u kiá»‡n status/keyword giá»‘ng query láº¥y dá»¯ liá»‡u trang.
+    // tính tổng số bản ghi theo bộ lọc để controller tính totalPages cho phân trang.
     public int countQueueByDoctorWithFilter(int doctorId, String status, String keyword) {
         StringBuilder sql = new StringBuilder("""
         SELECT COUNT(*)
@@ -877,7 +889,8 @@ public class DoctorDAO extends DBContext {
             sql.append(" AND p.full_name LIKE ? ");
         }
 
-        try (PreparedStatement ps = connection.prepareStatement(sql.toString())) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int index = 1;
             ps.setInt(index++, doctorId);
 
@@ -889,19 +902,19 @@ public class DoctorDAO extends DBContext {
                 ps.setString(index, "%" + keyword + "%");
             }
 
-            ResultSet rs = ps.executeQuery();
-            if (rs.next()) {
-                return rs.getInt(1);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi countQueueByDoctorWithFilter: " + e.getMessage());
         }
 
         return 0;
     }
 
-    // Pagination, hiá»ƒn thá»‹ theo phÃ¢n trang vÃ  bá»™ lá»c.
-    // LIMIT/OFFSET sau khi chuáº©n hÃ³a page/pageSize vÃ  bind Ä‘iá»u kiá»‡n Ä‘á»™ng.
+    // Pagination
     public List<DoctorQueueItem> getQueueByDoctorWithFilterPaging(
             int doctorId,
             String status,
@@ -916,7 +929,7 @@ public class DoctorDAO extends DBContext {
         int offset = (safePage - 1) * safePageSize;
 
         StringBuilder sql = new StringBuilder("""
-        SELECT 
+        SELECT
             q.queue_position,
             q.appointment_id,
             p.patient_id,
@@ -964,7 +977,8 @@ public class DoctorDAO extends DBContext {
             LIMIT ? OFFSET ?
         """);
 
-        try (PreparedStatement ps = connection.prepareStatement(sql.toString())) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int index = 1;
             ps.setInt(index++, doctorId);
 
@@ -979,21 +993,13 @@ public class DoctorDAO extends DBContext {
             ps.setInt(index++, safePageSize);
             ps.setInt(index, offset);
 
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                DoctorQueueItem item = new DoctorQueueItem();
-                item.setQueuePosition(rs.getInt("queue_position"));
-                item.setAppointmentId(rs.getLong("appointment_id"));
-                item.setPatientId(rs.getLong("patient_id"));
-                item.setPatientName(rs.getString("patient_name"));
-                item.setGender(rs.getString("gender"));
-                item.setDob(rs.getDate("dob"));
-                item.setSymptom(rs.getString("symptom"));
-                item.setStatus(rs.getString("status"));
-                list.add(item);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapQueueItem(rs));
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getQueueByDoctorWithFilterPaging: " + e.getMessage());
         }
         return list;
     }
@@ -1016,32 +1022,24 @@ public class DoctorDAO extends DBContext {
             LIMIT 1
         """;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, doctorId);
             ps.setLong(2, appointmentId);
 
-            ResultSet rs = ps.executeQuery();
-            if (rs.next()) {
-                DoctorQueueItem item = new DoctorQueueItem();
-                item.setQueuePosition(rs.getInt("queue_position"));
-                item.setAppointmentId(rs.getLong("appointment_id"));
-                item.setPatientId(rs.getLong("patient_id"));
-                item.setPatientName(rs.getString("patient_name"));
-                item.setGender(rs.getString("gender"));
-                item.setDob(rs.getDate("dob"));
-                item.setSymptom(rs.getString("symptom"));
-                item.setStatus(rs.getString("status"));
-                return item;
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapQueueItem(rs);
+                }
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (SQLException e) {
+            System.err.println("Lỗi DB khi getQueueItemByAppointment: " + e.getMessage());
         }
 
         return null;
     }
 
-    // Nnáº¡p timeline cÃ¡c phiáº¿u xÃ©t nghiá»‡m vÃ  káº¿t quáº£ theo appointment hiá»‡n táº¡i.
-    // LEFT JOIN lab_requests vá»›i lab_results.
+    // Nạp timeline các phiếu xét nghiệm và kết quả theo appointment hiện tại.
     public List<ExamLabItem> getLabResultsByAppointment(long appointmentId) {
         List<ExamLabItem> list = new ArrayList<>();
         String sql = """
@@ -1058,21 +1056,23 @@ public class DoctorDAO extends DBContext {
             ORDER BY lr.created_at DESC
         """;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, appointmentId);
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                ExamLabItem item = new ExamLabItem();
-                item.setRequestId(rs.getInt("request_id"));
-                item.setStatus(rs.getString("status"));
-                item.setRequestedAt(rs.getTimestamp("created_at"));
-                item.setResultFile(rs.getString("result_file"));
-                item.setNotes(rs.getString("notes"));
-                item.setCompletedAt(rs.getTimestamp("completed_at"));
-                list.add(item);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    ExamLabItem item = new ExamLabItem();
+                    item.setRequestId(rs.getInt("request_id"));
+                    item.setStatus(rs.getString("status"));
+                    item.setRequestedAt(rs.getTimestamp("created_at"));
+                    item.setResultFile(rs.getString("result_file"));
+                    item.setNotes(rs.getString("notes"));
+                    item.setCompletedAt(rs.getTimestamp("completed_at"));
+                    list.add(item);
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getLabResultsByAppointment: " + e.getMessage());
         }
 
         return list;
@@ -1102,25 +1102,26 @@ public class DoctorDAO extends DBContext {
             LIMIT 10
         """;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, appointmentId);
-            ResultSet rs = ps.executeQuery();
-
-            while (rs.next()) {
-                ExaminationHistoryItem item = new ExaminationHistoryItem();
-                item.setAppointmentId(rs.getLong("appointment_id"));
-                item.setAppointmentDate(rs.getDate("appointment_date"));
-                item.setAppointmentTime(rs.getTime("appointment_time"));
-                item.setSymptom(rs.getString("symptom"));
-                item.setAppointmentStatus(rs.getString("appointment_status"));
-                item.setQueueStatus(rs.getString("queue_status"));
-                item.setDiagnosis(rs.getString("diagnosis"));
-                item.setNotes(rs.getString("notes"));
-                item.setRecordUpdatedAt(rs.getTimestamp("record_updated_at"));
-                list.add(item);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    ExaminationHistoryItem item = new ExaminationHistoryItem();
+                    item.setAppointmentId(rs.getLong("appointment_id"));
+                    item.setAppointmentDate(rs.getDate("appointment_date"));
+                    item.setAppointmentTime(rs.getTime("appointment_time"));
+                    item.setSymptom(rs.getString("symptom"));
+                    item.setAppointmentStatus(rs.getString("appointment_status"));
+                    item.setQueueStatus(rs.getString("queue_status"));
+                    item.setDiagnosis(rs.getString("diagnosis"));
+                    item.setNotes(rs.getString("notes"));
+                    item.setRecordUpdatedAt(rs.getTimestamp("record_updated_at"));
+                    list.add(item);
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getExaminationHistoryByAppointment: " + e.getMessage());
         }
 
         return list;
@@ -1134,30 +1135,32 @@ public class DoctorDAO extends DBContext {
             LIMIT 1
         """;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, appointmentId);
-            ResultSet rs = ps.executeQuery();
-            if (rs.next()) {
-                MedicalRecord record = new MedicalRecord();
-                record.setAppointmentId(rs.getLong("appointment_id"));
-                record.setSymptoms(rs.getString("symptoms"));
-                record.setDiagnosis(rs.getString("diagnosis"));
-                record.setNotes(rs.getString("notes"));
-                record.setUpdatedAt(rs.getTimestamp("updated_at"));
-                return record;
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    MedicalRecord record = new MedicalRecord();
+                    record.setAppointmentId(rs.getLong("appointment_id"));
+                    record.setSymptoms(rs.getString("symptoms"));
+                    record.setDiagnosis(rs.getString("diagnosis"));
+                    record.setNotes(rs.getString("notes"));
+                    record.setUpdatedAt(rs.getTimestamp("updated_at"));
+                    return record;
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getMedicalRecordByAppointment: " + e.getMessage());
         }
 
         return null;
     }
 
     public boolean upsertMedicalRecord(long appointmentId, String symptoms, String diagnosis, String notes) {
-        try {
-            return upsertMedicalRecordTx(appointmentId, symptoms, diagnosis, notes);
+        try (Connection conn = DBContext.getConnection()) {
+            return upsertMedicalRecordTx(conn, appointmentId, symptoms, diagnosis, notes);
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi upsertMedicalRecord: " + e.getMessage());
             return false;
         }
     }
@@ -1169,38 +1172,36 @@ public class DoctorDAO extends DBContext {
             WHERE appointment_id = ?
         """;
 
-        try {
-            connection.setAutoCommit(false);
+        try (Connection conn = DBContext.getConnection()) {
+            boolean originalAutoCommit = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
 
-            if (!upsertMedicalRecordTx(appointmentId, symptoms, diagnosis, notes)) {
-                connection.rollback();
-                return false;
-            }
-
-            try (PreparedStatement finish = connection.prepareStatement(finishSql)) {
-                finish.setLong(1, appointmentId);
-                if (finish.executeUpdate() == 0) {
-                    connection.rollback();
+                if (!upsertMedicalRecordTx(conn, appointmentId, symptoms, diagnosis, notes)) {
+                    conn.rollback();
                     return false;
                 }
-            }
 
-            connection.commit();
-            return true;
-        } catch (SQLException e) {
-            try {
-                connection.rollback();
-            } catch (SQLException ex) {
-                ex.printStackTrace();
-            }
-            e.printStackTrace();
-            return false;
-        } finally {
-            try {
-                connection.setAutoCommit(true);
+                try (PreparedStatement finish = conn.prepareStatement(finishSql)) {
+                    finish.setLong(1, appointmentId);
+                    if (finish.executeUpdate() == 0) {
+                        conn.rollback();
+                        return false;
+                    }
+                }
+
+                conn.commit();
+                return true;
             } catch (SQLException e) {
-                e.printStackTrace();
+                conn.rollback();
+                System.err.println("Lỗi DB khi saveMedicalRecordAndFinishExamination: " + e.getMessage());
+                return false;
+            } finally {
+                conn.setAutoCommit(originalAutoCommit);
             }
+        } catch (SQLException e) {
+            System.err.println("Lỗi DB khi lấy connection cho saveMedicalRecordAndFinishExamination: " + e.getMessage());
+            return false;
         }
     }
 
@@ -1208,50 +1209,48 @@ public class DoctorDAO extends DBContext {
         String insertLabSql = "INSERT INTO lab_requests (appointment_id, doctor_id, status, created_at) VALUES (?, ?, 'pending', NOW())";
         String moveToLabQueueSql = "UPDATE exam_queue SET status = 'in_lab' WHERE appointment_id = ?";
         int safeRequestCount = Math.max(1, requestCount);
-        
-        try {
-            connection.setAutoCommit(false);
 
-            if (!upsertMedicalRecordTx(appointmentId, symptoms, diagnosis, notes)) {
-                connection.rollback();
-                return 0;
-            }
+        try (Connection conn = DBContext.getConnection()) {
+            boolean originalAutoCommit = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
 
-            int createdCount = 0;
-            for (int i = 0; i < safeRequestCount; i++) {
-                int requestId = insertLabRequestTx(appointmentId, doctorId, insertLabSql);
-                if (requestId <= 0) {
-                    connection.rollback();
+                if (!upsertMedicalRecordTx(conn, appointmentId, symptoms, diagnosis, notes)) {
+                    conn.rollback();
                     return 0;
                 }
-                if (!ensureLabPaymentPendingTx(appointmentId, requestId)) {
-                    connection.rollback();
-                    return 0;
+
+                int createdCount = 0;
+                for (int i = 0; i < safeRequestCount; i++) {
+                    int requestId = insertLabRequestTx(conn, appointmentId, doctorId, insertLabSql);
+                    if (requestId <= 0) {
+                        conn.rollback();
+                        return 0;
+                    }
+                    if (!ensureLabPaymentPendingTx(conn, appointmentId, requestId)) {
+                        conn.rollback();
+                        return 0;
+                    }
+                    createdCount++;
                 }
-                createdCount++;
-            }
 
-            moveAppointmentToLabQueueTx(appointmentId, moveToLabQueueSql);
+                moveAppointmentToLabQueueTx(conn, appointmentId, moveToLabQueueSql);
 
-            connection.commit();
-            return createdCount;
-        } catch (SQLException e) {
-            try {
-                connection.rollback();
-            } catch (SQLException ex) {
-                ex.printStackTrace();
-            }
-            e.printStackTrace();
-            return 0;
-        } finally {
-            try {
-                connection.setAutoCommit(true);
+                conn.commit();
+                return createdCount;
             } catch (SQLException e) {
-                e.printStackTrace();
+                conn.rollback();
+                System.err.println("Lỗi DB khi saveMedicalRecordAndCreateLabRequests: " + e.getMessage());
+                return 0;
+            } finally {
+                conn.setAutoCommit(originalAutoCommit);
             }
+        } catch (SQLException e) {
+            System.err.println("Lỗi DB khi lấy connection cho saveMedicalRecordAndCreateLabRequests: " + e.getMessage());
+            return 0;
         }
     }
-    
+
     public boolean hasIncompleteLabRequests(long appointmentId) {
         String sql = """
             SELECT 1
@@ -1261,19 +1260,22 @@ public class DoctorDAO extends DBContext {
             LIMIT 1
         """;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, appointmentId);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next();
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi hasIncompleteLabRequests: " + e.getMessage());
         }
 
         return true;
-    } 
+    }
 
-    private boolean upsertMedicalRecordTx(long appointmentId, String symptoms, String diagnosis, String notes) throws SQLException {
+    // === Private Transaction Helpers (nhận Connection làm tham số) ===
+
+    private boolean upsertMedicalRecordTx(Connection conn, long appointmentId, String symptoms, String diagnosis, String notes) throws SQLException {
         String checkSql = "SELECT 1 FROM medical_records WHERE appointment_id = ? LIMIT 1";
         String updateRecordSql = """
             UPDATE medical_records
@@ -1286,7 +1288,7 @@ public class DoctorDAO extends DBContext {
         """;
 
         boolean exists;
-        try (PreparedStatement check = connection.prepareStatement(checkSql)) {
+        try (PreparedStatement check = conn.prepareStatement(checkSql)) {
             check.setLong(1, appointmentId);
             try (ResultSet rs = check.executeQuery()) {
                 exists = rs.next();
@@ -1294,7 +1296,7 @@ public class DoctorDAO extends DBContext {
         }
 
         if (exists) {
-            try (PreparedStatement update = connection.prepareStatement(updateRecordSql)) {
+            try (PreparedStatement update = conn.prepareStatement(updateRecordSql)) {
                 update.setString(1, symptoms);
                 update.setString(2, diagnosis);
                 update.setString(3, notes);
@@ -1303,7 +1305,7 @@ public class DoctorDAO extends DBContext {
             }
         }
 
-        try (PreparedStatement insert = connection.prepareStatement(insertRecordSql)) {
+        try (PreparedStatement insert = conn.prepareStatement(insertRecordSql)) {
             insert.setLong(1, appointmentId);
             insert.setLong(2, appointmentId);
             insert.setString(3, symptoms);
@@ -1313,8 +1315,8 @@ public class DoctorDAO extends DBContext {
         }
     }
 
-    private int insertLabRequestTx(long appointmentId, int doctorId, String insertLabSql) throws SQLException {
-        try (PreparedStatement insertLab = connection.prepareStatement(insertLabSql, Statement.RETURN_GENERATED_KEYS)) {
+    private int insertLabRequestTx(Connection conn, long appointmentId, int doctorId, String insertLabSql) throws SQLException {
+        try (PreparedStatement insertLab = conn.prepareStatement(insertLabSql, Statement.RETURN_GENERATED_KEYS)) {
             insertLab.setLong(1, appointmentId);
             insertLab.setInt(2, doctorId);
             if (insertLab.executeUpdate() == 0) {
@@ -1330,8 +1332,8 @@ public class DoctorDAO extends DBContext {
         }
     }
 
-    private void moveAppointmentToLabQueueTx(long appointmentId, String moveToLabQueueSql) throws SQLException {
-        try (PreparedStatement moveQueue = connection.prepareStatement(moveToLabQueueSql)) {
+    private void moveAppointmentToLabQueueTx(Connection conn, long appointmentId, String moveToLabQueueSql) throws SQLException {
+        try (PreparedStatement moveQueue = conn.prepareStatement(moveToLabQueueSql)) {
             moveQueue.setLong(1, appointmentId);
             if (moveQueue.executeUpdate() == 0) {
                 throw new SQLException("Appointment is not in exam_queue");
@@ -1340,12 +1342,12 @@ public class DoctorDAO extends DBContext {
     }
 
     /**
-     * Táº¡o payment pending cho xÃ©t nghiá»‡m ngay khi bÃ¡c sÄ© chá»‰ Ä‘á»‹nh.
-     * Náº¿u payment Ä‘Ã£ tá»“n táº¡i cho appointment nÃ y thÃ¬ giá»¯ nguyÃªn vÃ  coi nhÆ° thÃ nh cÃ´ng.
+     * Tạo payment pending cho xét nghiệm ngay khi bác sĩ chỉ định.
+     * Nếu payment đã tồn tại cho appointment này thì giữ nguyên và coi như thành công.
      */
-    private boolean ensureLabPaymentPendingTx(long appointmentId, int labRequestId) throws SQLException {
+    private boolean ensureLabPaymentPendingTx(Connection conn, long appointmentId, int labRequestId) throws SQLException {
         String checkPaymentSql = "SELECT payment_id FROM payments WHERE lab_request_id = ? LIMIT 1";
-        try (PreparedStatement check = connection.prepareStatement(checkPaymentSql)) {
+        try (PreparedStatement check = conn.prepareStatement(checkPaymentSql)) {
             check.setInt(1, labRequestId);
             try (ResultSet rs = check.executeQuery()) {
                 if (rs.next()) {
@@ -1356,7 +1358,7 @@ public class DoctorDAO extends DBContext {
 
         java.math.BigDecimal labPrice = new java.math.BigDecimal("150000");
         String priceSql = "SELECT price FROM service_prices WHERE service_type = 'lab' LIMIT 1";
-        try (PreparedStatement priceSt = connection.prepareStatement(priceSql)) {
+        try (PreparedStatement priceSt = conn.prepareStatement(priceSql)) {
             try (ResultSet priceRs = priceSt.executeQuery()) {
                 if (priceRs.next() && priceRs.getBigDecimal("price") != null) {
                     labPrice = priceRs.getBigDecimal("price");
@@ -1365,7 +1367,7 @@ public class DoctorDAO extends DBContext {
         }
 
         String insertPaymentSql = "INSERT INTO payments (appointment_id, lab_request_id, amount, method, status, created_at) VALUES (?, ?, ?, 'cash', 'pending', NOW())";
-        try (PreparedStatement ins = connection.prepareStatement(insertPaymentSql)) {
+        try (PreparedStatement ins = conn.prepareStatement(insertPaymentSql)) {
             ins.setLong(1, appointmentId);
             ins.setInt(2, labRequestId);
             ins.setBigDecimal(3, labPrice);
@@ -1373,7 +1375,7 @@ public class DoctorDAO extends DBContext {
         }
     }
 
-    public void updateDoctor(int doctorId, String qualification, int experience, String specialization) {
+    public void updateDoctor(int doctorId, String qualification, int experience, String specialization) throws SQLException {
         String sqlGetUser = "SELECT user_id FROM doctors WHERE doctor_id = ?";
         String sqlUpdateDoctor = """
             UPDATE doctors
@@ -1390,36 +1392,37 @@ public class DoctorDAO extends DBContext {
             VALUES (?, ?)
         """;
 
-        try (PreparedStatement getUser = connection.prepareStatement(sqlGetUser)) {
-            getUser.setInt(1, doctorId);
-            ResultSet userRs = getUser.executeQuery();
-            if (!userRs.next()) {
-                return;
+        try (Connection conn = DBContext.getConnection()) {
+            int userId;
+            try (PreparedStatement getUser = conn.prepareStatement(sqlGetUser)) {
+                getUser.setInt(1, doctorId);
+                try (ResultSet userRs = getUser.executeQuery()) {
+                    if (!userRs.next()) {
+                        return;
+                    }
+                    userId = userRs.getInt("user_id");
+                }
             }
 
-            int userId = userRs.getInt("user_id");
-            try (PreparedStatement updateDoctor = connection.prepareStatement(sqlUpdateDoctor)) {
-                updateDoctor.setString(1, specialization);
-                updateDoctor.setInt(2, experience);
-                updateDoctor.setInt(3, doctorId);
-                updateDoctor.executeUpdate();
+            try (PreparedStatement updateDoctorSt = conn.prepareStatement(sqlUpdateDoctor)) {
+                updateDoctorSt.setString(1, specialization);
+                updateDoctorSt.setInt(2, experience);
+                updateDoctorSt.setInt(3, doctorId);
+                updateDoctorSt.executeUpdate();
             }
 
-            try (PreparedStatement st = connection.prepareStatement(sqlUpdateStaff)) {
+            try (PreparedStatement st = conn.prepareStatement(sqlUpdateStaff)) {
                 st.setString(1, qualification);
                 st.setInt(2, userId);
 
                 if (st.executeUpdate() == 0) {
-                    try (PreparedStatement insert = connection.prepareStatement(sqlInsertStaff)) {
+                    try (PreparedStatement insert = conn.prepareStatement(sqlInsertStaff)) {
                         insert.setInt(1, userId);
                         insert.setString(2, qualification);
                         insert.executeUpdate();
                     }
                 }
             }
-
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
@@ -1428,16 +1431,16 @@ public class DoctorDAO extends DBContext {
             return false;
         }
 
-        try {
-            return savePrescriptionByRecordSchema(appointmentId, doctorId, prescriptionItems);
+        try (Connection conn = DBContext.getConnection()) {
+            return savePrescriptionByRecordSchema(conn, appointmentId, doctorId, prescriptionItems);
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi savePrescription: " + e.getMessage());
             return false;
         }
     }
 
-    private boolean savePrescriptionByRecordSchema(long appointmentId, int doctorId, List<PrescriptionItem> prescriptionItems) throws SQLException {
-        long recordId = ensureMedicalRecordForAppointment(appointmentId, doctorId);
+    private boolean savePrescriptionByRecordSchema(Connection conn, long appointmentId, int doctorId, List<PrescriptionItem> prescriptionItems) throws SQLException {
+        long recordId = ensureMedicalRecordForAppointment(conn, appointmentId, doctorId);
         if (recordId <= 0) {
             return false;
         }
@@ -1445,12 +1448,12 @@ public class DoctorDAO extends DBContext {
         String findPrescriptionSql = "SELECT prescription_id FROM prescriptions WHERE record_id = ? LIMIT 1";
         String insertPrescriptionSql = "INSERT INTO prescriptions (record_id, doctor_id, created_at) VALUES (?, ?, NOW())";
         String updatePrescriptionSql = "UPDATE prescriptions SET doctor_id = ?, created_at = NOW() WHERE prescription_id = ?";
-        return savePrescriptionTransactional(recordId, doctorId, prescriptionItems, findPrescriptionSql, insertPrescriptionSql, updatePrescriptionSql);
+        return savePrescriptionTransactional(conn, recordId, doctorId, prescriptionItems, findPrescriptionSql, insertPrescriptionSql, updatePrescriptionSql);
     }
 
-    private long ensureMedicalRecordForAppointment(long appointmentId, int doctorId) throws SQLException {
+    private long ensureMedicalRecordForAppointment(Connection conn, long appointmentId, int doctorId) throws SQLException {
         String findRecordSql = "SELECT record_id FROM medical_records WHERE appointment_id = ? LIMIT 1";
-        try (PreparedStatement findRecord = connection.prepareStatement(findRecordSql)) {
+        try (PreparedStatement findRecord = conn.prepareStatement(findRecordSql)) {
             findRecord.setLong(1, appointmentId);
             try (ResultSet rs = findRecord.executeQuery()) {
                 if (rs.next()) {
@@ -1463,7 +1466,7 @@ public class DoctorDAO extends DBContext {
             INSERT INTO medical_records (appointment_id, doctor_id, symptoms, diagnosis, notes, updated_at)
             VALUES (?, ?, '', '', '', NOW())
         """;
-        try (PreparedStatement createRecord = connection.prepareStatement(createRecordSql, Statement.RETURN_GENERATED_KEYS)) {
+        try (PreparedStatement createRecord = conn.prepareStatement(createRecordSql, Statement.RETURN_GENERATED_KEYS)) {
             createRecord.setLong(1, appointmentId);
             createRecord.setInt(2, doctorId);
             if (createRecord.executeUpdate() == 0) {
@@ -1480,7 +1483,7 @@ public class DoctorDAO extends DBContext {
         return 0;
     }
 
-    private boolean savePrescriptionTransactional(long recordId,
+    private boolean savePrescriptionTransactional(Connection conn, long recordId,
             int doctorId,
             List<PrescriptionItem> prescriptionItems,
             String findPrescriptionSql,
@@ -1493,26 +1496,26 @@ public class DoctorDAO extends DBContext {
             VALUES (?, ?, ?, ?, ?)
         """;
 
-        boolean originalAutoCommit = connection.getAutoCommit();
+        boolean originalAutoCommit = conn.getAutoCommit();
         try {
-            connection.setAutoCommit(false);
+            conn.setAutoCommit(false);
             int prescriptionId;
-            try (PreparedStatement find = connection.prepareStatement(findPrescriptionSql)) {
+            try (PreparedStatement find = conn.prepareStatement(findPrescriptionSql)) {
                 find.setLong(1, recordId);
                 try (ResultSet rs = find.executeQuery()) {
                     if (rs.next()) {
                         prescriptionId = rs.getInt("prescription_id");
                     } else {
-                        try (PreparedStatement insertPrescription = connection.prepareStatement(insertPrescriptionSql, Statement.RETURN_GENERATED_KEYS)) {
+                        try (PreparedStatement insertPrescription = conn.prepareStatement(insertPrescriptionSql, Statement.RETURN_GENERATED_KEYS)) {
                             insertPrescription.setLong(1, recordId);
                             insertPrescription.setInt(2, doctorId);
                             if (insertPrescription.executeUpdate() == 0) {
-                                connection.rollback();
+                                conn.rollback();
                                 return false;
                             }
                             try (ResultSet keys = insertPrescription.getGeneratedKeys()) {
                                 if (!keys.next()) {
-                                    connection.rollback();
+                                    conn.rollback();
                                     return false;
                                 }
                                 prescriptionId = keys.getInt(1);
@@ -1522,24 +1525,24 @@ public class DoctorDAO extends DBContext {
                 }
             }
 
-            try (PreparedStatement updatePrescription = connection.prepareStatement(updatePrescriptionSql)) {
+            try (PreparedStatement updatePrescription = conn.prepareStatement(updatePrescriptionSql)) {
                 updatePrescription.setInt(1, doctorId);
                 updatePrescription.setInt(2, prescriptionId);
                 updatePrescription.executeUpdate();
             }
 
-            try (PreparedStatement deleteItems = connection.prepareStatement(deleteItemsSql)) {
+            try (PreparedStatement deleteItems = conn.prepareStatement(deleteItemsSql)) {
                 deleteItems.setInt(1, prescriptionId);
                 deleteItems.executeUpdate();
             }
 
-            try (PreparedStatement insertItem = connection.prepareStatement(insertItemSql)) {
+            try (PreparedStatement insertItem = conn.prepareStatement(insertItemSql)) {
                 for (PrescriptionItem item : prescriptionItems) {
                     String medicineName = item.getMedicineName();
                     if (medicineName == null || medicineName.isBlank()) {
                         medicineName = item.getMedicineId() > 0
                                 ? "Medicine #" + item.getMedicineId()
-                                : "ChÆ°a cáº­p nháº­t";
+                                : "Chưa cập nhật";
                     }
                     insertItem.setInt(1, prescriptionId);
                     insertItem.setString(2, medicineName);
@@ -1551,13 +1554,13 @@ public class DoctorDAO extends DBContext {
                 insertItem.executeBatch();
             }
 
-            connection.commit();
+            conn.commit();
             return true;
         } catch (SQLException e) {
-            connection.rollback();
+            conn.rollback();
             throw e;
         } finally {
-            connection.setAutoCommit(originalAutoCommit);
+            conn.setAutoCommit(originalAutoCommit);
         }
     }
 
@@ -1579,29 +1582,29 @@ public class DoctorDAO extends DBContext {
             ORDER BY pi.item_id
         """;
 
-        try {
-            loadPrescriptionItems(list, sql, appointmentId);
+        try (Connection conn = DBContext.getConnection()) {
+            loadPrescriptionItems(conn, list, sql, appointmentId);
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getPrescriptionItemsByAppointment: " + e.getMessage());
         }
 
         return list;
     }
 
-    private void loadPrescriptionItems(List<PrescriptionItem> list, String sql, long appointmentId) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+    private void loadPrescriptionItems(Connection conn, List<PrescriptionItem> list, String sql, long appointmentId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, appointmentId);
-            ResultSet rs = ps.executeQuery();
-
-            while (rs.next()) {
-                PrescriptionItem item = new PrescriptionItem();
-                item.setItemId(rs.getInt("item_id"));
-                item.setPrescriptionId(rs.getInt("prescription_id"));
-                item.setMedicineName(rs.getString("medicine_name"));
-                item.setDosage(rs.getString("dosage"));
-                item.setFrequency(rs.getString("frequency"));
-                item.setDurationDays(rs.getString("duration_value"));
-                list.add(item);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    PrescriptionItem item = new PrescriptionItem();
+                    item.setItemId(rs.getInt("item_id"));
+                    item.setPrescriptionId(rs.getInt("prescription_id"));
+                    item.setMedicineName(rs.getString("medicine_name"));
+                    item.setDosage(rs.getString("dosage"));
+                    item.setFrequency(rs.getString("frequency"));
+                    item.setDurationDays(rs.getString("duration_value"));
+                    list.add(item);
+                }
             }
         }
     }
@@ -1614,27 +1617,29 @@ public class DoctorDAO extends DBContext {
             ORDER BY medicine_name
         """;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                Medicine medicine = new Medicine();
-                medicine.setMedicineId(rs.getInt("medicine_id"));
-                medicine.setMedicineName(rs.getString("medicine_name"));
-                medicine.setUnit(rs.getString("unit"));
-                medicine.setDefaultDosage(rs.getString("default_dosage"));
-                list.add(medicine);
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Medicine medicine = new Medicine();
+                    medicine.setMedicineId(rs.getInt("medicine_id"));
+                    medicine.setMedicineName(rs.getString("medicine_name"));
+                    medicine.setUnit(rs.getString("unit"));
+                    medicine.setDefaultDosage(rs.getString("default_dosage"));
+                    list.add(medicine);
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getAllMedicines: " + e.getMessage());
         }
 
         return list;
     }
-    
+
     public Doctor getDoctorById(String doctorID) {
 
         String sql = """
-        SELECT 
+        SELECT
             d.doctor_id,
             u.full_name,
             d.specialization,
@@ -1651,40 +1656,39 @@ public class DoctorDAO extends DBContext {
           AND u.status = 'active'
     """;
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
 
             st.setInt(1, Integer.parseInt(doctorID));
-            ResultSet rs = st.executeQuery();
 
-            if (rs.next()) {
-
-                Doctor d = new Doctor();
-                d.setDoctorId(rs.getInt("doctor_id"));
-                d.setFullName(rs.getString("full_name"));
-                d.setSpecialization(rs.getString("specialization"));
-                d.setQualification(rs.getString("qualification"));
-                d.setExperience_years(rs.getInt("experience_years"));
-                d.setRating(rs.getDouble("rating"));
-                d.setPrice(rs.getDouble("price_booking"));
-                d.setImage(rs.getString("image_url"));
-                d.setStatus(rs.getString("user_status"));
-
-                return d;
+            try (ResultSet rs = st.executeQuery()) {
+                if (rs.next()) {
+                    Doctor d = new Doctor();
+                    d.setDoctorId(rs.getInt("doctor_id"));
+                    d.setFullName(rs.getString("full_name"));
+                    d.setSpecialization(rs.getString("specialization"));
+                    d.setQualification(rs.getString("qualification"));
+                    d.setExperience_years(rs.getInt("experience_years"));
+                    d.setRating(rs.getDouble("rating"));
+                    d.setPrice(rs.getDouble("price_booking"));
+                    d.setImage(rs.getString("image_url"));
+                    d.setStatus(rs.getString("user_status"));
+                    return d;
+                }
             }
-
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getDoctorById: " + e.getMessage());
         }
 
         return null;
     }
-    
+
     public List<Doctor> getAllDoctors() {
 
         List<Doctor> list = new ArrayList<>();
 
         String sql = """
-        SELECT 
+        SELECT
             d.doctor_id,
             u.full_name,
             d.specialization,
@@ -1699,10 +1703,11 @@ public class DoctorDAO extends DBContext {
         WHERE u.status = 'active'
     """;
 
-        try (PreparedStatement st = connection.prepareStatement(sql); ResultSet rs = st.executeQuery()) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql);
+             ResultSet rs = st.executeQuery()) {
 
             while (rs.next()) {
-
                 Doctor d = new Doctor();
                 d.setDoctorId(rs.getInt("doctor_id"));
                 d.setFullName(rs.getString("full_name"));
@@ -1712,19 +1717,18 @@ public class DoctorDAO extends DBContext {
                 d.setRating(rs.getDouble("rating"));
                 d.setPrice(rs.getDouble("price_booking"));
                 d.setImage(rs.getString("image_url"));
-
                 list.add(d);
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getAllDoctors: " + e.getMessage());
         }
 
         return list;
     }
-    
-    
-     public List<Doctor> filterDoctors(
+
+
+    public List<Doctor> filterDoctors(
             String name,
             String priceFrom,
             String priceTo,
@@ -1734,7 +1738,7 @@ public class DoctorDAO extends DBContext {
         List<Doctor> list = new ArrayList<>();
 
         StringBuilder sql = new StringBuilder("""
-        SELECT 
+        SELECT
             d.doctor_id,
             u.full_name,
             d.specialization,
@@ -1773,7 +1777,8 @@ public class DoctorDAO extends DBContext {
             sql.append(" ORDER BY d.rating DESC ");
         }
 
-        try (PreparedStatement st = connection.prepareStatement(sql.toString())) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql.toString())) {
 
             int index = 1;
 
@@ -1793,51 +1798,47 @@ public class DoctorDAO extends DBContext {
                 st.setInt(index++, Integer.parseInt(experience));
             }
 
-            ResultSet rs = st.executeQuery();
-
-            while (rs.next()) {
-
-                Doctor d = new Doctor();
-                d.setDoctorId(rs.getInt("doctor_id"));
-                d.setFullName(rs.getString("full_name"));
-                d.setSpecialization(rs.getString("specialization"));
-                d.setQualification(rs.getString("qualification"));
-                d.setExperience_years(rs.getInt("experience_years"));
-                d.setRating(rs.getDouble("rating"));
-                d.setPrice(rs.getDouble("price_booking"));
-                d.setImage(rs.getString("image_url"));
-
-                list.add(d);
+            try (ResultSet rs = st.executeQuery()) {
+                while (rs.next()) {
+                    Doctor d = new Doctor();
+                    d.setDoctorId(rs.getInt("doctor_id"));
+                    d.setFullName(rs.getString("full_name"));
+                    d.setSpecialization(rs.getString("specialization"));
+                    d.setQualification(rs.getString("qualification"));
+                    d.setExperience_years(rs.getInt("experience_years"));
+                    d.setRating(rs.getDouble("rating"));
+                    d.setPrice(rs.getDouble("price_booking"));
+                    d.setImage(rs.getString("image_url"));
+                    list.add(d);
+                }
             }
-
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (SQLException e) {
+            System.err.println("Lỗi DB khi filterDoctors: " + e.getMessage());
         }
 
         return list;
     }
-         public void toggleUserStatusById(int userId) throws SQLException {
-         String sql = "UPDATE users SET status = CASE WHEN status = 'active' THEN 'inactive' ELSE 'active' END WHERE user_id = ?";
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+    public void toggleUserStatusById(int userId) throws SQLException {
+        String sql = "UPDATE users SET status = CASE WHEN status = 'active' THEN 'inactive' ELSE 'active' END WHERE user_id = ?";
+
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setInt(1, userId);
             st.executeUpdate();
-        } catch (SQLException e) {
-            throw e;
         }
     }
 
- public java.util.List<java.util.Map<String, Object>> getTopRatedDoctors(int limit) {
+    public java.util.List<java.util.Map<String, Object>> getTopRatedDoctors(int limit) {
         java.util.List<java.util.Map<String, Object>> list = new java.util.ArrayList<>();
         String sql = "SELECT d.doctor_id, u.full_name, d.specialization, " +
                      "sp.academic_degree AS qualification, d.experience_years, d.rating, u.image_url " +
                      "FROM doctors d JOIN users u ON d.user_id = u.user_id " +
                      "LEFT JOIN staff_profiles sp ON sp.user_id = d.user_id " +
                      "WHERE u.status = 'active' ORDER BY d.rating DESC LIMIT ?";
-        if (connection == null) {
-            return list;
-        }
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, limit);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -1852,11 +1853,23 @@ public class DoctorDAO extends DBContext {
                     list.add(doc);
                 }
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (SQLException e) {
+            System.err.println("Lỗi DB khi getTopRatedDoctors: " + e.getMessage());
         }
         return list;
     }
- 
-}
 
+    // === Private Helper: Map ResultSet -> DoctorQueueItem ===
+    private DoctorQueueItem mapQueueItem(ResultSet rs) throws SQLException {
+        DoctorQueueItem item = new DoctorQueueItem();
+        item.setQueuePosition(rs.getInt("queue_position"));
+        item.setAppointmentId(rs.getLong("appointment_id"));
+        item.setPatientId(rs.getLong("patient_id"));
+        item.setPatientName(rs.getString("patient_name"));
+        item.setGender(rs.getString("gender"));
+        item.setDob(rs.getDate("dob"));
+        item.setSymptom(rs.getString("symptom"));
+        item.setStatus(rs.getString("status"));
+        return item;
+    }
+}

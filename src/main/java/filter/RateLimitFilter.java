@@ -13,8 +13,8 @@ public class RateLimitFilter implements Filter {
 
     private final ConcurrentHashMap<String, TokenBucket> buckets = new ConcurrentHashMap<>();
 
-    private static final long MAX_TOKENS = 50;
-    private static final double REFILL_RATE = 10.0;
+    private static final long MAX_TOKENS = 3;
+    private static final double REFILL_RATE = 0.5;
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {

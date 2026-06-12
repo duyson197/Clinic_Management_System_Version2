@@ -161,7 +161,13 @@ public class UserInformationServlet extends HttpServlet {
                 }
             }
 
-            users.updateUser(userId, name, phone, email, avatarUrl);
+            try {
+                users.updateUser(userId, name, phone, email, avatarUrl);
+            } catch (java.sql.SQLException ex) {
+                System.err.println("Lỗi DB khi cập nhật profile: " + ex.getMessage());
+                response.sendRedirect(request.getContextPath() + "/userinformationservlet?error=dbError&edit=1");
+                return;
+            }
             clearProfileOtp(session);
             SystemLogService.log(userId, "PROFILE_UPDATED",
                     "Cập nhật thông tin cá nhân: name=" + name + ", phone=" + phone + ", email=" + email);
@@ -190,7 +196,13 @@ public class UserInformationServlet extends HttpServlet {
                 return;
             }
 
-            users.updatePassword(userId, newPass);
+            try {
+                users.updatePassword(userId, newPass);
+            } catch (java.sql.SQLException ex) {
+                System.err.println("Lỗi DB khi đổi mật khẩu: " + ex.getMessage());
+                response.sendRedirect(request.getContextPath() + "/userinformationservlet?error=dbError");
+                return;
+            }
             SystemLogService.log(userId, "PASSWORD_CHANGED", "Đổi mật khẩu thành công: userId=" + userId);
             response.sendRedirect(request.getContextPath() + "/userinformationservlet?success=passwordChanged");
             return;

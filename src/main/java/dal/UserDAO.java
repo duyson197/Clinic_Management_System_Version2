@@ -1,6 +1,7 @@
 package dal;
 
 import model.User;
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -9,30 +10,32 @@ import java.util.List;
 import model.Role;
 import model.Status;
 
-public class UserDAO extends DBContext {
+public class UserDAO {
 
-     private static final String DEFAULT_AVATAR_URL = "https://i.pinimg.com/1200x/8f/1c/a2/8f1ca2029e2efceebd22fa05cca423d7.jpg";
+    private static final String DEFAULT_AVATAR_URL = "https://i.pinimg.com/1200x/8f/1c/a2/8f1ca2029e2efceebd22fa05cca423d7.jpg";
 
     public User checkLogin(String email, String password) {
         String sql = "SELECT user_id, full_name, phone, email, role, status "
                 + "FROM users "
                 + "WHERE email = ? AND password_hash = ?";
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, email);
             st.setString(2, password);
-            ResultSet rs = st.executeQuery();
-            if (rs.next()) {
-                User u = new User();
-                u.setUserId(rs.getInt("user_id"));
-                u.setFullName(rs.getString("full_name"));
-                u.setPhone(rs.getString("phone"));
-                u.setEmail(rs.getString("email"));
-                u.setRole(Role.valueOf(rs.getString("role")));
-                u.setStatus(Status.valueOf(rs.getString("status")));
-                return u;
+            try (ResultSet rs = st.executeQuery()) {
+                if (rs.next()) {
+                    User u = new User();
+                    u.setUserId(rs.getInt("user_id"));
+                    u.setFullName(rs.getString("full_name"));
+                    u.setPhone(rs.getString("phone"));
+                    u.setEmail(rs.getString("email"));
+                    u.setRole(Role.valueOf(rs.getString("role")));
+                    u.setStatus(Status.valueOf(rs.getString("status")));
+                    return u;
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi checkLogin: " + e.getMessage());
         }
         return null;
     }
@@ -43,48 +46,54 @@ public class UserDAO extends DBContext {
             VALUES (?, ?, ?, ?, 'patient', 'active', ?)
         """;
 
-        try (PreparedStatement stUser = connection.prepareStatement(sqlUser)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement stUser = conn.prepareStatement(sqlUser)) {
             stUser.setString(1, fullName);
             stUser.setString(2, phone);
             stUser.setString(3, email);
             stUser.setString(4, password);
             stUser.setString(5, DEFAULT_AVATAR_URL);
             stUser.executeUpdate();
-        } catch (SQLException e) {
-            throw e;
         }
     }
 
     public boolean isPhoneExist(String phone) {
         String sql = "SELECT 1 FROM users WHERE phone = ?";
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, phone);
-            return st.executeQuery().next();
+            try (ResultSet rs = st.executeQuery()) {
+                return rs.next();
+            }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi isPhoneExist: " + e.getMessage());
         }
         return false;
     }
 
     public boolean isEmailExist(String email) {
         String sql = "SELECT 1 FROM users WHERE email = ?";
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, email);
-            return st.executeQuery().next();
+            try (ResultSet rs = st.executeQuery()) {
+                return rs.next();
+            }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi isEmailExist: " + e.getMessage());
         }
         return false;
     }
 
     public boolean updatePasswordByEmail(String email, String newPassword) {
         String sql = "UPDATE users SET password_hash = ? WHERE email = ?";
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, newPassword);
             st.setString(2, email);
             return st.executeUpdate() > 0;
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi updatePasswordByEmail: " + e.getMessage());
         }
         return false;
     }
@@ -93,31 +102,26 @@ public class UserDAO extends DBContext {
         String sql = "SELECT user_id, full_name, phone, email, role, status FROM users WHERE role = ? ORDER BY full_name";
         List<User> users = new ArrayList<>();
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, role.toString());
-            ResultSet rs = st.executeQuery();
-
-            while (rs.next()) {
-                User u = new User();
-                u.setUserId(rs.getInt("user_id"));
-                u.setFullName(rs.getString("full_name"));
-                u.setPhone(rs.getString("phone"));
-                u.setEmail(rs.getString("email"));
-                u.setRole(Role.valueOf(rs.getString("role")));
-                u.setStatus(Status.valueOf(rs.getString("status")));
-                users.add(u);
+            try (ResultSet rs = st.executeQuery()) {
+                while (rs.next()) {
+                    users.add(mapUserFromResultSet(rs));
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getUsersByRole: " + e.getMessage());
         }
 
         return users;
     }
 
-     public void createUser(User user) throws SQLException {
+    public void createUser(User user) throws SQLException {
         String sql = "INSERT INTO users (full_name, phone, email, password_hash, role, status, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)";
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, user.getFullName());
             st.setString(2, user.getPhone());
             st.setString(3, user.getEmail());
@@ -127,127 +131,98 @@ public class UserDAO extends DBContext {
             String imageUrl = user.getImageUrl();
             st.setString(7, (imageUrl == null || imageUrl.isBlank()) ? DEFAULT_AVATAR_URL : imageUrl);
             st.executeUpdate();
-        } catch (SQLException e) {
-            throw e;
         }
     }
-
 
     public void updateUser(User user) throws SQLException {
         String sql = "UPDATE users SET full_name = ?, phone = ?, email = ? WHERE user_id = ?";
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, user.getFullName());
             st.setString(2, user.getPhone());
             st.setString(3, user.getEmail());
             st.setInt(4, user.getUserId());
             st.executeUpdate();
-        } catch (SQLException e) {
-            throw e;
         }
     }
 
     public void toggleUserStatusById(int userId) throws SQLException {
         String sql = "UPDATE users SET status = CASE WHEN status = 'active' THEN 'inactive' ELSE 'active' END WHERE user_id = ?";
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setInt(1, userId);
             st.executeUpdate();
-        } catch (SQLException e) {
-            throw e;
         }
     }
 
     public User getUserById(int userId) {
         String sql = "SELECT user_id, full_name, phone, email, role, status FROM users WHERE user_id = ?";
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setInt(1, userId);
-            ResultSet rs = st.executeQuery();
-
-            if (rs.next()) {
-                User u = new User();
-                u.setUserId(rs.getInt("user_id"));
-                u.setFullName(rs.getString("full_name"));
-                u.setPhone(rs.getString("phone"));
-                u.setEmail(rs.getString("email"));
-                u.setRole(Role.valueOf(rs.getString("role")));
-                u.setStatus(Status.valueOf(rs.getString("status")));
-                return u;
+            try (ResultSet rs = st.executeQuery()) {
+                if (rs.next()) {
+                    return mapUserFromResultSet(rs);
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getUserById: " + e.getMessage());
         }
         return null;
     }
 
     public User getUserByPhone(String phone) {
         String sql = "SELECT user_id, full_name, phone, email, role, status FROM users WHERE phone = ?";
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, phone);
-            ResultSet rs = st.executeQuery();
-
-            if (rs.next()) {
-                User u = new User();
-                u.setUserId(rs.getInt("user_id"));
-                u.setFullName(rs.getString("full_name"));
-                u.setPhone(rs.getString("phone"));
-                u.setEmail(rs.getString("email"));
-                u.setRole(Role.valueOf(rs.getString("role")));
-                u.setStatus(Status.valueOf(rs.getString("status")));
-                return u;
+            try (ResultSet rs = st.executeQuery()) {
+                if (rs.next()) {
+                    return mapUserFromResultSet(rs);
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getUserByPhone: " + e.getMessage());
         }
         return null;
     }
 
     public User getUserByEmail(String email) {
         String sql = "SELECT user_id, full_name, phone, email, role, status FROM users WHERE email = ?";
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, email);
-            ResultSet rs = st.executeQuery();
-
-            if (rs.next()) {
-                User u = new User();
-                u.setUserId(rs.getInt("user_id"));
-                u.setFullName(rs.getString("full_name"));
-                u.setPhone(rs.getString("phone"));
-                u.setEmail(rs.getString("email"));
-                u.setRole(Role.valueOf(rs.getString("role")));
-                u.setStatus(Status.valueOf(rs.getString("status")));
-                return u;
+            try (ResultSet rs = st.executeQuery()) {
+                if (rs.next()) {
+                    return mapUserFromResultSet(rs);
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getUserByEmail: " + e.getMessage());
         }
         return null;
     }
 
     public List<User> getPatientList() {
         String sql = """
-        SELECT u.user_id, u.full_name, u.phone, u.email, u.role, u.status 
-        FROM users u 
-        WHERE u.role = 'patient' 
+        SELECT u.user_id, u.full_name, u.phone, u.email, u.role, u.status
+        FROM users u
+        WHERE u.role = 'patient'
         ORDER BY u.full_name
     """;
         List<User> users = new ArrayList<>();
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
-            ResultSet rs = st.executeQuery();
-
-            while (rs.next()) {
-                User u = new User();
-                u.setUserId(rs.getInt("user_id"));
-                u.setFullName(rs.getString("full_name"));
-                u.setPhone(rs.getString("phone"));
-                u.setEmail(rs.getString("email"));
-                u.setRole(Role.valueOf(rs.getString("role")));
-                u.setStatus(Status.valueOf(rs.getString("status")));
-                users.add(u);
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
+            try (ResultSet rs = st.executeQuery()) {
+                while (rs.next()) {
+                    users.add(mapUserFromResultSet(rs));
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getPatientList: " + e.getMessage());
         }
 
         return users;
@@ -256,44 +231,37 @@ public class UserDAO extends DBContext {
     public void updateUserRole(int userId, Role role) throws SQLException {
         String sql = "UPDATE users SET role = ? WHERE user_id = ?";
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, role.toString());
             st.setInt(2, userId);
             st.executeUpdate();
-        } catch (SQLException e) {
-            throw e;
         }
     }
 
     public List<User> searchUsers(String keyword, Role role) {
         String sql = """
-        SELECT user_id, full_name, phone, email, role, status 
-        FROM users 
-        WHERE (full_name LIKE ? OR phone LIKE ? OR email LIKE ?) AND role = ? 
+        SELECT user_id, full_name, phone, email, role, status
+        FROM users
+        WHERE (full_name LIKE ? OR phone LIKE ? OR email LIKE ?) AND role = ?
         ORDER BY full_name
     """;
         List<User> users = new ArrayList<>();
         keyword = "%" + keyword + "%";
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, keyword);
             st.setString(2, keyword);
             st.setString(3, keyword);
             st.setString(4, role.toString());
-            ResultSet rs = st.executeQuery();
-
-            while (rs.next()) {
-                User u = new User();
-                u.setUserId(rs.getInt("user_id"));
-                u.setFullName(rs.getString("full_name"));
-                u.setPhone(rs.getString("phone"));
-                u.setEmail(rs.getString("email"));
-                u.setRole(Role.valueOf(rs.getString("role")));
-                u.setStatus(Status.valueOf(rs.getString("status")));
-                users.add(u);
+            try (ResultSet rs = st.executeQuery()) {
+                while (rs.next()) {
+                    users.add(mapUserFromResultSet(rs));
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi searchUsers: " + e.getMessage());
         }
 
         return users;
@@ -301,11 +269,11 @@ public class UserDAO extends DBContext {
 
     public List<User> getAllStaffAndAdmin() {
         String sql = """
-        SELECT user_id, full_name, phone, email, role, status 
-        FROM users 
-        WHERE role IN ('admin', 'doctor', 'receptionist', 'technician', 'patient_manager') 
-        ORDER BY 
-            CASE 
+        SELECT user_id, full_name, phone, email, role, status
+        FROM users
+        WHERE role IN ('admin', 'doctor', 'receptionist', 'technician', 'patient_manager')
+        ORDER BY
+            CASE
                 WHEN role = 'admin' THEN 1
                 WHEN role = 'doctor' THEN 2
                 WHEN role = 'receptionist' THEN 3
@@ -315,21 +283,15 @@ public class UserDAO extends DBContext {
     """;
         List<User> users = new ArrayList<>();
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
-            ResultSet rs = st.executeQuery();
-
-            while (rs.next()) {
-                User u = new User();
-                u.setUserId(rs.getInt("user_id"));
-                u.setFullName(rs.getString("full_name"));
-                u.setPhone(rs.getString("phone"));
-                u.setEmail(rs.getString("email"));
-                u.setRole(Role.valueOf(rs.getString("role")));
-                u.setStatus(Status.valueOf(rs.getString("status")));
-                users.add(u);
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
+            try (ResultSet rs = st.executeQuery()) {
+                while (rs.next()) {
+                    users.add(mapUserFromResultSet(rs));
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getAllStaffAndAdmin: " + e.getMessage());
         }
 
         return users;
@@ -337,30 +299,24 @@ public class UserDAO extends DBContext {
 
     public List<User> getUsersByRoleAndStatus(Role role, Status status) {
         String sql = """
-        SELECT user_id, full_name, phone, email, role, status 
-        FROM users 
-        WHERE role = ? AND status = ? 
+        SELECT user_id, full_name, phone, email, role, status
+        FROM users
+        WHERE role = ? AND status = ?
         ORDER BY full_name
     """;
         List<User> users = new ArrayList<>();
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, role.toString());
             st.setString(2, status.toString());
-            ResultSet rs = st.executeQuery();
-
-            while (rs.next()) {
-                User u = new User();
-                u.setUserId(rs.getInt("user_id"));
-                u.setFullName(rs.getString("full_name"));
-                u.setPhone(rs.getString("phone"));
-                u.setEmail(rs.getString("email"));
-                u.setRole(Role.valueOf(rs.getString("role")));
-                u.setStatus(Status.valueOf(rs.getString("status")));
-                users.add(u);
+            try (ResultSet rs = st.executeQuery()) {
+                while (rs.next()) {
+                    users.add(mapUserFromResultSet(rs));
+                }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getUsersByRoleAndStatus: " + e.getMessage());
         }
 
         return users;
@@ -372,7 +328,8 @@ public class UserDAO extends DBContext {
                 + "role, status, image_url "
                 + "FROM users WHERE user_id = ?";
 
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
 
             st.setInt(1, userId);
 
@@ -398,7 +355,7 @@ public class UserDAO extends DBContext {
             }
 
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.err.println("Lỗi DB khi getUserById1: " + e.getMessage());
         }
 
         return null;
@@ -406,55 +363,65 @@ public class UserDAO extends DBContext {
 
     public boolean checkOldPassword(int userId, String oldPass) {
         String sql = "SELECT password_hash FROM users WHERE user_id=?";
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setInt(1, userId);
-            ResultSet rs = st.executeQuery();
-
-            if (rs.next()) {
-                return rs.getString("password_hash").equals(oldPass);
+            try (ResultSet rs = st.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString("password_hash").equals(oldPass);
+                }
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (SQLException e) {
+            System.err.println("Lỗi DB khi checkOldPassword: " + e.getMessage());
         }
         return false;
     }
 
-    public void updatePassword(int userId, String newPass) {
+    public void updatePassword(int userId, String newPass) throws SQLException {
         String sql = "UPDATE users SET password_hash=? WHERE user_id=?";
-        try (PreparedStatement st = connection.prepareStatement(sql)) {
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
             st.setString(1, newPass);
             st.setInt(2, userId);
             st.executeUpdate();
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
-    public void updateUser(int id, String name, String phone, String email, String image) {
+    public void updateUser(int id, String name, String phone, String email, String image) throws SQLException {
 
         String sql = """
         UPDATE users
         SET full_name = ?,
             phone = ?,
             email = ?,
-           
             image_url = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?
     """;
 
-        try {
-            PreparedStatement ps = connection.prepareStatement(sql);
+        try (Connection conn = DBContext.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, name);
             ps.setString(2, phone);
             ps.setString(3, email);
-
             ps.setString(4, image);
             ps.setInt(5, id);
             ps.executeUpdate();
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
+    /**
+     * Helper: Map một dòng ResultSet thành đối tượng User (dùng cho các hàm SELECT cơ bản).
+     * Yêu cầu ResultSet phải có các cột: user_id, full_name, phone, email, role, status.
+     */
+    private User mapUserFromResultSet(ResultSet rs) throws SQLException {
+        User u = new User();
+        u.setUserId(rs.getInt("user_id"));
+        u.setFullName(rs.getString("full_name"));
+        u.setPhone(rs.getString("phone"));
+        u.setEmail(rs.getString("email"));
+        u.setRole(Role.valueOf(rs.getString("role")));
+        u.setStatus(Status.valueOf(rs.getString("status")));
+        return u;
+    }
 }
